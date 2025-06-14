@@ -34,4 +34,6 @@ There are two main things this script does:
 
 3 - Add some aliases to be used in terminal:
 
-full-upgrade lsa
+full-upgrade - updates system and clean files after instalation
+Every time a cd is used, the terminal shows the files and folders in the accessed folder
+
