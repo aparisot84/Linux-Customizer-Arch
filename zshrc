@@ -280,14 +280,13 @@ fi
 
 # Other general aliases
 alias cls='clear'
-alias full-upgrade='yay -Syyuu && yay-Scc && pacman -Rs $(pacman -Qdtq'
+alias full-upgrade='yay -Syyuu --noconfirm && yay-Scc --noconfirm && pacman -Rs $(pacman -Qdtq) --noconfirm'
 alias ls='exa --icons'
 alias bat='bat --style=auto'
 alias lsa='ls -la'
-alias keyboardbr='setxkbmap -model abnt2 -layout br'
 alias cat='bat'
-alias ts-down="sudo tailscale down && echo 'Executando: Tailscale Down'"
-alias ts-st='sudo tailscale status'
+alias ts-down="sudo tailscale down && echo 'Executando: Tailscale Down' sudo systemctl stop tailscaled && echo 'Encerrando tailscaled...'"
+alias ts-stat='sudo tailscale status'
 alias reload="source ~/.zshrc && echo 'Recarregando zshrc'"
 
 
@@ -313,9 +312,6 @@ if [ -f /usr/share/doc/pkgfile/command-not-found.zsh ]; then
     . /usr/share/doc/pkgfile/command-not-found.zsh
 fi
 
-# Configurar layout de teclado brasileiro
-setxkbmap -model abnt2 -layout br>/dev/null || true
-
 # Ativação do tailscale automatiocamente ao digitar o comando
 function ts-up() {
   echo "Iniciando tailscaled..."
@@ -329,3 +325,6 @@ function ts-up() {
     sudo tailscale up "$@"
   fi
 }
+
+#Executa automaticamente ao iniciar uma sessão no terminal
+fastfetch
