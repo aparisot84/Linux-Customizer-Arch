@@ -288,6 +288,7 @@ alias cat='bat'
 alias ts-down="sudo tailscale down && echo 'Executando: Tailscale Down' sudo systemctl stop tailscaled && echo 'Encerrando tailscaled...'"
 alias ts-stat='sudo tailscale status'
 alias reload="source ~/.zshrc && echo 'Recarregando zshrc'"
+alias df='df --human-readable'
 
 
 # cd show the folder content:
