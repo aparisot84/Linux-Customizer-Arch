@@ -246,6 +246,7 @@ precmd() {
     fi
 }
 
+
 # enable color support of ls, less and man, and also add handy aliases
 if [ -x /usr/bin/dircolors ]; then
     test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
@@ -272,30 +273,6 @@ if [ -x /usr/bin/dircolors ]; then
     zstyle ':completion:*:*:kill:*:processes' list-colors '=(#b) #([0-9]#)*=0=01;31'
 fi
 
-# some more aliases
-#alias ll='ls -l'
-#alias la='ls -A'
-#alias l='ls -CF'
-#alias lsa='ls -la'
-
-# Other general aliases
-alias cls='clear'
-alias full-upgrade='yay -Syyuu --noconfirm && yay-Scc --noconfirm && pacman -Rs $(pacman -Qdtq) --noconfirm'
-alias ls='exa --icons'
-alias bat='bat --style=auto'
-alias lsa='ls -la'
-alias cat='bat'
-alias ts-down="sudo tailscale down && echo 'Executando: Tailscale Down' sudo systemctl stop tailscaled && echo 'Encerrando tailscaled...'"
-alias ts-stat='sudo tailscale status'
-alias reload="source ~/.zshrc && echo 'Recarregando zshrc'"
-alias df='df --human-readable'
-
-
-# cd show the folder content:
-cd() {
-  builtin cd "$@" && ls
-}
-
 
 # enable auto-suggestions based on the history
 if [ -f /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh ]; then
@@ -313,6 +290,22 @@ if [ -f /usr/share/doc/pkgfile/command-not-found.zsh ]; then
     . /usr/share/doc/pkgfile/command-not-found.zsh
 fi
 
+###########     CUSTOM FUNCTIONS     ##########
+
+# cd show the folder content:
+function cd() {
+  builtin cd "$@" && ls
+}
+
+
+# realiza a atualização completa e limpexa de cache
+function full-upgrade(){
+    yay -Syyuu --noconfirm
+    yay -Scc --noconfirm
+    sudo pacman -Rs $(pacman -Qdtq) --noconfirm
+}
+
+
 # Ativação do tailscale automatiocamente ao digitar o comando
 function ts-up() {
   echo "Iniciando tailscaled..."
@@ -327,5 +320,83 @@ function ts-up() {
   fi
 }
 
-#Executa automaticamente ao iniciar uma sessão no terminal
-fastfetch
+function ts-down() {
+    sudo tailscale down
+    echo 'Executando: Tailscale Down'
+    sudo systemctl stop tailscaled
+    echo 'Encerrando tailscaled...'
+}
+
+function ping() {
+  set +x
+  local no_dns=0 host logfile interval out line
+  [[ "$1" == "-n" ]] && { no_dns=1; shift; }
+
+  host="$1"; logfile="$2"; interval="${3:-1}"
+  if [[ -z "$host" ]]; then
+    print "uso: ping [-n] <host|ip> [logfile] [intervalo]"
+    return 1
+  fi
+
+  while true; do
+    local cmd=( /bin/ping -c1 -W1 )
+    (( no_dns )) && cmd+=( -n )
+    cmd+=( "$host" )
+
+    out="$("${cmd[@]}" 2>/dev/null)"
+    if [[ $? -eq 0 ]]; then
+      # pega a linha de eco (PT/EN)
+      line=$(print -- "$out" | awk '/icmp_seq=.*(time|tempo)=/ {print; exit}')
+      [[ -z "$line" ]] && line=$(print -- "$out" | awk '/bytes .*icmp_seq=/ {print; exit}')
+
+      if [[ -n "$line" ]]; then
+        # coloriza com ESC real (\033)
+        line=$(printf '%s\n' "$line" | awk '{
+          l=$0
+          gsub(/^[0-9]+ bytes/,"\033[1;37m&\033[0m",l)                          # "64 bytes"
+          gsub(/de [^ ]+/,"\033[36m&\033[0m",l)                                 # "de <host/ip>" (colorimos o bloco todo)
+          gsub(/icmp_seq=[0-9]+/,"\033[35m&\033[0m",l)                          # icmp_seq=…
+          gsub(/ttl=[0-9]+/,"\033[34m&\033[0m",l)                               # ttl=…
+          gsub(/(tempo|time)=[0-9.]+ ms/,"\033[33m&\033[0m",l)                  # tempo=/time=
+          print l
+        }')
+        printf '%b\n' "$line"
+
+        # log sem cor (se pedido)
+        if [[ -n "$logfile" ]]; then
+          echo "$line" | sed -E "s/\x1B\[[0-9;]*m//g" >> "$logfile"
+        fi
+      fi
+    else
+      # timeout/erro (mantém formato, em vermelho)
+      line="64 bytes de $host: icmp_seq=? ttl=? tempo=? ms"
+      printf '%b\n' "\033[31m${line}\033[0m"
+      [[ -n "$logfile" ]] && echo "$line" >> "$logfile"
+    fi
+
+    sleep "$interval"
+  done
+}
+
+###########     CUSTOM ALIASES     ##########
+
+# some more aliases
+#alias ll='ls -l'
+#alias la='ls -A'
+#alias l='ls -CF'
+#alias lsa='ls -la'
+
+# Other general aliases
+alias cls='clear'
+alias ls='exa --icons'
+alias bat='bat --style=auto'
+alias lsa='ls -la'
+alias cat='bat'
+alias ts-stat='sudo tailscale status'
+alias reload="source ~/.zshrc && echo 'Recarregando zshrc'"
+alias df='df --human-readable'
+
+
+#Auto execução ao abrir o terminal
+fastfetch   #mostra as informações do sistema
+alias       #mostra os comandos personalizados do shell
