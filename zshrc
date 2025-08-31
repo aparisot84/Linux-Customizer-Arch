@@ -307,24 +307,47 @@ function full-upgrade(){
 
 
 # Ativação do tailscale automatiocamente ao digitar o comando
-function ts-up() {
-  echo "Iniciando tailscaled..."
-  sudo systemctl start tailscaled
+ts-up() {
+  echo "[ts-up] Iniciando tailscaled (systemd)…"
+  sudo systemctl enable --now tailscaled
 
-  if [[ $# -eq 0 ]]; then
-    echo "Executando: tailscale up"
-    sudo tailscale up
-  else
-    echo "Executando: tailscale up $*"
-    sudo tailscale up "$@"
+  # espera o socket/daemon ficar pronto (até ~5s)
+  for i in {1..10}; do
+    if sudo systemctl is-active --quiet tailscaled && [ -S /var/run/tailscale/tailscaled.sock ]; then
+      break
+    fi
+    sleep 0.5
+  done
+
+  if ! sudo systemctl is-active --quiet tailscaled; then
+    echo "[ts-up] ERRO: tailscaled não ficou ativo. Últimos logs:"
+    journalctl -u tailscaled -b -n 60 --no-pager
+    return 1
   fi
+
+  echo "[ts-up] Executando: tailscale up $*"
+  sudo tailscale up "$@" || {
+    echo "[ts-up] Falhou o 'tailscale up'. Logs recentes:"
+    journalctl -u tailscaled -b -n 60 --no-pager
+    return 1
+  }
+
+  echo "[ts-up] OK. Status:"
+  sudo tailscale status
 }
 
-function ts-down() {
-    sudo tailscale down
-    echo 'Executando: Tailscale Down'
-    sudo systemctl stop tailscaled
-    echo 'Encerrando tailscaled...'
+ts-down() {
+  echo "[ts-down] tailscale down…"
+  sudo tailscale down || true
+
+  echo "[ts-down] Parando tailscaled (systemd)…"
+  sudo systemctl stop tailscaled
+
+  # mata qualquer processo residual e limpa socket
+  sudo pkill -x tailscaled 2>/dev/null || true
+  sudo rm -f /var/run/tailscale/tailscaled.sock
+
+  echo "[ts-down] Feito."
 }
 
 function ping() {
