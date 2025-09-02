@@ -302,7 +302,13 @@ function cd() {
 function full-upgrade(){
     yay -Syyuu --noconfirm
     yay -Scc --noconfirm
-    sudo pacman -Rs $(pacman -Qdtq) --noconfirm
+    local orphans=$(pacman -Qdtq)
+    if [[ -n "$orphans" ]]; then
+      echo "Removendo órfãos: $orphans"
+      sudo pacman -Rs $orphans --noconfirm
+    else
+      echo "Nenhum pacote órfão encontrado 🎉"
+    fi
 }
 
 
@@ -351,8 +357,11 @@ ts-down() {
 }
 
 function ping() {
-  set +x
-  local no_dns=0 host logfile interval out line
+  emulate -L zsh
+  setopt localoptions noxtrace
+  PS4=
+
+  local no_dns=0 host logfile interval out line rc
   [[ "$1" == "-n" ]] && { no_dns=1; shift; }
 
   host="$1"; logfile="$2"; interval="${3:-1}"
@@ -361,40 +370,70 @@ function ping() {
     return 1
   fi
 
+  # timeouts (s)
+  local RESOLVE_TIMEOUT="${RESOLVE_TIMEOUT:-2}"
+  local DEADLINE="${PING_TIMEOUT:-3}"
+  local TIMEOUT_BIN="/usr/bin/timeout"
+  [[ ! -x "$TIMEOUT_BIN" ]] && TIMEOUT_BIN=""
+
+  # é IPv4 literal?
+  local is_ipv4=0
+  [[ "$host" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && is_ipv4=1
+
   while true; do
+    # 1) DNS (se não for IP)
+    if (( ! is_ipv4 )); then
+      if [[ -n "$TIMEOUT_BIN" ]]; then
+        $TIMEOUT_BIN "$RESOLVE_TIMEOUT" getent hosts "$host" >/dev/null 2>&1
+      else
+        getent hosts "$host" >/dev/null 2>&1
+      fi
+      if [[ $? -ne 0 ]]; then
+        printf '%b\n' "$(date '+%F %T')  \033[31m[DNS]\033[0m host não resolvido: $host"
+        [[ -n "$logfile" ]] && printf '%s  [DNS] host não resolvido: %s\n' "$(date '+%F %T')" "$host" >> "$logfile"
+        sleep "$interval"
+        continue
+      fi
+    fi
+
+    # 2) executa o ping (1 tentativa; timeout total DEADLINE)
     local cmd=( /bin/ping -c1 -W1 )
     (( no_dns )) && cmd+=( -n )
     cmd+=( "$host" )
 
-    out="$("${cmd[@]}" 2>/dev/null)"
-    if [[ $? -eq 0 ]]; then
-      # pega a linha de eco (PT/EN)
+    if [[ -n "$TIMEOUT_BIN" ]]; then
+      out="$($TIMEOUT_BIN "$DEADLINE" "${cmd[@]}" 2>&1)"; rc=$?
+    else
+      out="$("${cmd[@]}" 2>&1)"; rc=$?
+    fi
+
+    if [[ $rc -eq 0 ]]; then
+      # extrai a linha “64 bytes …”
       line=$(print -- "$out" | awk '/icmp_seq=.*(time|tempo)=/ {print; exit}')
       [[ -z "$line" ]] && line=$(print -- "$out" | awk '/bytes .*icmp_seq=/ {print; exit}')
-
       if [[ -n "$line" ]]; then
-        # coloriza com ESC real (\033)
+        # coloriza mantendo formato
         line=$(printf '%s\n' "$line" | awk '{
           l=$0
-          gsub(/^[0-9]+ bytes/,"\033[1;37m&\033[0m",l)                          # "64 bytes"
-          gsub(/de [^ ]+/,"\033[36m&\033[0m",l)                                 # "de <host/ip>" (colorimos o bloco todo)
-          gsub(/icmp_seq=[0-9]+/,"\033[35m&\033[0m",l)                          # icmp_seq=…
-          gsub(/ttl=[0-9]+/,"\033[34m&\033[0m",l)                               # ttl=…
-          gsub(/(tempo|time)=[0-9.]+ ms/,"\033[33m&\033[0m",l)                  # tempo=/time=
+          gsub(/^[0-9]+ bytes/,"\033[1;37m&\033[0m",l)
+          gsub(/de [^ ]+/,"\033[36m&\033[0m",l)
+          gsub(/icmp_seq=[0-9]+/,"\033[35m&\033[0m",l)
+          gsub(/ttl=[0-9]+/,"\033[34m&\033[0m",l)
+          gsub(/(tempo|time)=[0-9.]+ ms/,"\033[33m&\033[0m",l)
           print l
         }')
-        printf '%b\n' "$line"
-
-        # log sem cor (se pedido)
-        if [[ -n "$logfile" ]]; then
-          echo "$line" | sed -E "s/\x1B\[[0-9;]*m//g" >> "$logfile"
-        fi
+        printf '%b\n' "$(date '+%F %T')  $line"
+        [[ -n "$logfile" ]] && printf '%s  %s\n' "$(date '+%F %T')" "$(echo "$line" | sed -E 's/\x1B\[[0-9;]*m//g')" >> "$logfile"
       fi
     else
-      # timeout/erro (mantém formato, em vermelho)
-      line="64 bytes de $host: icmp_seq=? ttl=? tempo=? ms"
-      printf '%b\n' "\033[31m${line}\033[0m"
-      [[ -n "$logfile" ]] && echo "$line" >> "$logfile"
+      # distingue timeout geral de outras falhas
+      if [[ $rc -eq 124 || $rc -eq 137 ]]; then
+        printf '%b\n' "$(date '+%F %T')  \033[31m[FAIL]\033[0m sem resposta de $host (timeout ${DEADLINE}s)"
+        [[ -n "$logfile" ]] && printf '%s  [FAIL] sem resposta de %s (timeout %ss)\n' "$(date '+%F %T')" "$host" "$DEADLINE" >> "$logfile"
+      else
+        printf '%b\n' "$(date '+%F %T')  \033[31m[FAIL]\033[0m sem resposta de $host"
+        [[ -n "$logfile" ]] && printf '%s  [FAIL] sem resposta de %s\n' "$(date '+%F %T')" "$host" >> "$logfile"
+      fi
     fi
 
     sleep "$interval"
@@ -422,4 +461,4 @@ alias df='df --human-readable'
 
 #Auto execução ao abrir o terminal
 fastfetch   #mostra as informações do sistema
-alias       #mostra os comandos personalizados do shell
+#alias       #mostra os comandos personalizados do shell
